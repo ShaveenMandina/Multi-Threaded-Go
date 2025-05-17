@@ -1,7 +1,7 @@
 package main
 
-// Main entry point for the application
+// Starting point of our app
 func main() {
-	// Start the interactive mode
+	// Launches the interactive interface
 	runInteractiveMode()
 }
