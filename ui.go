@@ -12,10 +12,8 @@ import (
 	"time"
 )
 
-// ----- GO'S TERMINAL UI FUNCTIONALITY -----
-// displayProgress shows a progress bar during scanning
+// Shows a progress bar during scan
 func displayProgress(done chan bool, total int) {
-	// ----- GO'S TIME PACKAGE -----
 	start := time.Now()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -24,16 +22,15 @@ func displayProgress(done chan bool, total int) {
 	barWidth := 40
 
 	for {
-		// ----- GO'S SELECT FOR CHANNEL OPERATIONS -----
 		select {
 		case <-done:
-			// Final progress update at 100%
+			// Finish with 100% bar
 			printProgressBar(barWidth, 100, time.Since(start), total, total)
 			fmt.Println()
 			return
 		case <-ticker.C:
 			counter++
-			// Calculate progress based on time and typical scan rates
+			// Estimate progress based on typical scan time
 			elapsed := time.Since(start)
 			estimatedTotal := 5 * time.Second
 			if total > 1000 {
@@ -42,33 +39,33 @@ func displayProgress(done chan bool, total int) {
 				estimatedTotal = 15 * time.Second
 			}
 
-			// Adjust progress between 0 and 99% until done
+			// Keep progress under 100% until we're actually done
 			progress := float64(elapsed) / float64(estimatedTotal)
 			if progress > 0.99 {
-				progress = 0.99 // Cap at 99% until truly done
+				progress = 0.99
 			}
 
-			// Estimate ports completed
+			// Calculate estimated ports done
 			portsCompleted := int(float64(total) * progress)
 
-			// Print the progress bar
+			// Update the bar
 			printProgressBar(barWidth, progress*100, elapsed, portsCompleted, total)
 		}
 	}
 }
 
-// printProgressBar displays a progress bar with the given width and percentage
+// Draws the actual progress bar UI
 func printProgressBar(width int, percent float64, elapsed time.Duration, completed, total int) {
-	// Calculate the number of filled positions
+	// Calculate filled positions
 	filled := int(percent / 100 * float64(width))
 	if filled > width {
 		filled = width
 	}
 
-	// Build the progress bar
+	// Create the visual bar
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
 
-	// Calculate ports per second (simple estimate)
+	// Calculate speed
 	portsPerSecond := float64(completed) / math.Max(elapsed.Seconds(), 0.001)
 	if math.IsNaN(portsPerSecond) || math.IsInf(portsPerSecond, 0) {
 		portsPerSecond = 0
@@ -84,20 +81,19 @@ func printProgressBar(width int, percent float64, elapsed time.Duration, complet
 		remaining = ", done!"
 	}
 
-	// Print the progress bar with percentage and time elapsed
+	// Print everything
 	fmt.Printf("\r[%s] %.1f%% (%d/%d ports, %.1f ports/sec%s)    ",
 		bar, percent, completed, total, portsPerSecond, remaining)
 }
 
-// ----- GO'S INTERACTIVE CONSOLE MODE -----
-// runInteractiveMode provides a terminal user interface for scanning
+// Main CLI interface
 func runInteractiveMode() {
 	scanner := bufio.NewScanner(os.Stdin)
 
-	// Show help menu
+	// Start with help
 	printUIHelp()
 
-	// Main interaction loop
+	// Main command loop
 	for {
 		fmt.Print("\nportscanner> ")
 		if !scanner.Scan() {
@@ -144,7 +140,7 @@ func runInteractiveMode() {
 	}
 }
 
-// printUIHelp prints the help menu with available commands
+// Shows available commands
 func printUIHelp() {
 	help := `
 Available Commands:
@@ -190,7 +186,7 @@ Go Features Showcased:
 	fmt.Println(help)
 }
 
-// handleUIScanCommand processes the scan command in interactive mode
+// Handles the scan command
 func handleUIScanCommand(args []string) {
 	if len(args) < 2 {
 		fmt.Println("Usage: scan <host> [start] [end] [threads] [timeout]")
@@ -203,7 +199,7 @@ func handleUIScanCommand(args []string) {
 	threads := 100
 	timeout := 500
 
-	// Parse optional parameters
+	// Parse optional args
 	if len(args) >= 3 {
 		var err error
 		startPort, err = strconv.Atoi(args[2])
@@ -240,7 +236,7 @@ func handleUIScanCommand(args []string) {
 		}
 	}
 
-	// Validate inputs
+	// Sanity checks
 	if startPort < 1 || startPort > 65535 {
 		fmt.Println("Start port must be between 1 and 65535")
 		return
@@ -254,11 +250,11 @@ func handleUIScanCommand(args []string) {
 	fmt.Printf("\nStarting port scan on host %s (ports %d-%d)\n", host, startPort, endPort)
 	fmt.Printf("Using %d threads with %dms timeout\n\n", threads, timeout)
 
-	// Create a cancellable context
+	// Support cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle user interruption
+	// Ctrl+C handler
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt)
@@ -267,7 +263,7 @@ func handleUIScanCommand(args []string) {
 		cancel()
 	}()
 
-	// Create scanner with functional options
+	// Create and configure scanner
 	scanner := NewScanner(
 		WithTarget(host),
 		WithPortRange(startPort, endPort),
@@ -277,14 +273,14 @@ func handleUIScanCommand(args []string) {
 		WithContext(ctx),
 	)
 
-	// Perform the scan
+	// Run the scan
 	openPorts, err := scanner.Scan()
 	if err != nil {
 		fmt.Printf("\nScan error: %v\n", err)
 		return
 	}
 
-	// Print results
+	// Show results
 	fmt.Printf("\nScan completed for %s: %d open ports found\n", host, len(openPorts))
 	if len(openPorts) > 0 {
 		fmt.Printf("Open ports on %s: ", host)
@@ -297,12 +293,12 @@ func handleUIScanCommand(args []string) {
 		}
 		fmt.Println()
 
-		// Simple OS detection based on open ports
+		// Try to identify OS
 		fmt.Printf("OS Detection: %s\n", guessOS(openPorts))
 	}
 }
 
-// handleUIPingCommand processes the ping command in interactive mode
+// Handles the ping command
 func handleUIPingCommand(args []string) {
 	if len(args) < 2 {
 		fmt.Println("Usage: ping <host>")
@@ -320,7 +316,7 @@ func handleUIPingCommand(args []string) {
 	}
 }
 
-// handleUIBannerCommand processes the banner command in interactive mode
+// Handles the banner grab command
 func handleUIBannerCommand(args []string) {
 	if len(args) < 3 {
 		fmt.Println("Usage: banner <host> <port>")
@@ -350,7 +346,7 @@ func handleUIBannerCommand(args []string) {
 	}
 }
 
-// handleUIRangeCommand processes the range command in interactive mode
+// Handles the IP range scanning command
 func handleUIRangeCommand(args []string) {
 	if len(args) < 2 {
 		fmt.Println("Usage: range <start-end> [start] [end] [threads]")
@@ -362,7 +358,7 @@ func handleUIRangeCommand(args []string) {
 	endPort := 100
 	threads := 100
 
-	// Parse optional parameters
+	// Parse optional args
 	if len(args) >= 3 {
 		var err error
 		startPort, err = strconv.Atoi(args[2])
@@ -390,7 +386,7 @@ func handleUIRangeCommand(args []string) {
 		}
 	}
 
-	// Expand the IP range
+	// Get list of IPs from range
 	hosts, err := expandIPRange(ipRange)
 	if err != nil {
 		fmt.Printf("Error expanding IP range: %v\n", err)
@@ -400,11 +396,11 @@ func handleUIRangeCommand(args []string) {
 	fmt.Printf("Scanning %d hosts in range %s (ports %d-%d)\n",
 		len(hosts), ipRange, startPort, endPort)
 
-	// Create context for cancellation
+	// Support cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle user interruption
+	// Ctrl+C handler
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt)
@@ -415,16 +411,16 @@ func handleUIRangeCommand(args []string) {
 
 	// Scan each host
 	for _, host := range hosts {
-		// Check if context is cancelled
+		// Check if canceled
 		select {
 		case <-ctx.Done():
 			fmt.Println("Scan cancelled.")
 			return
 		default:
-			// Continue with scan
+			// Continue
 		}
 
-		// Check if host is alive
+		// Check if host is alive first
 		fmt.Printf("\nChecking if %s is alive... ", host)
 		if !isHostAlive(ctx, host, 500*time.Millisecond) {
 			fmt.Println("Host appears to be down, skipping.")
@@ -432,7 +428,7 @@ func handleUIRangeCommand(args []string) {
 		}
 		fmt.Println("Host is up!")
 
-		// Create scanner with functional options
+		// Configure scanner
 		scanner := NewScanner(
 			WithTarget(host),
 			WithPortRange(startPort, endPort),
@@ -442,7 +438,7 @@ func handleUIRangeCommand(args []string) {
 			WithContext(ctx),
 		)
 
-		// Perform the scan
+		// Run the scan
 		fmt.Printf("Scanning %s (ports %d-%d)...\n", host, startPort, endPort)
 		openPorts, err := scanner.Scan()
 		if err != nil {
@@ -450,7 +446,7 @@ func handleUIRangeCommand(args []string) {
 			continue
 		}
 
-		// Print results
+		// Show results
 		if len(openPorts) > 0 {
 			fmt.Printf("Open ports on %s: ", host)
 			for i, port := range openPorts {
