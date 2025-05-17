@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// scanInProgress tracks if there's an ongoing scan
+// Track if scan is currently running
 var scanInProgress bool
 var scanMutex sync.Mutex
 
-// startWebServer starts a web server on port 8080
+// Runs the web interface on port 8080
 func startWebServer() {
-	// Define the HTML template using Go's template package
+	// Define the UI template
 	tmpl := template.Must(template.New("index").Parse(`
 <!DOCTYPE html>
 <html>
@@ -381,30 +381,29 @@ func startWebServer() {
 </html>
 `))
 
-	// ----- GO'S HTTP REQUEST HANDLING -----
-	// Define HTTP handlers
+	// Setup HTTP route handlers
 
-	// Main page handler
+	// Main page
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Use read lock for thread safety when reading results
+		// Use read lock when accessing results
 		resultsMutex.RLock()
 		defer resultsMutex.RUnlock()
 
-		// Execute the template with scan results
+		// Render the template with current results
 		err := tmpl.Execute(w, scanResults)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Template error: %v", err), http.StatusInternalServerError)
 		}
 	})
 
-	// Handler for scan requests
+	// Scan request handler
 	http.HandleFunc("/scan", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Check if a scan is already in progress
+		// Only allow one scan at a time
 		scanMutex.Lock()
 		if scanInProgress {
 			scanMutex.Unlock()
@@ -414,7 +413,7 @@ func startWebServer() {
 		scanInProgress = true
 		scanMutex.Unlock()
 
-		// Parse form
+		// Get form data
 		err := r.ParseForm()
 		if err != nil {
 			scanMutex.Lock()
@@ -424,7 +423,7 @@ func startWebServer() {
 			return
 		}
 
-		// Get form values with validation
+		// Validate required fields
 		host := r.FormValue("host")
 		if host == "" {
 			scanMutex.Lock()
@@ -434,8 +433,7 @@ func startWebServer() {
 			return
 		}
 
-		// ----- GO'S STRING CONVERSION -----
-		// Parse numeric values with error handling - typical Go pattern
+		// Parse numeric values with defaults
 		startPort, err := strconv.Atoi(r.FormValue("start"))
 		if err != nil || startPort < 1 || startPort > 65535 {
 			startPort = 1
@@ -459,24 +457,23 @@ func startWebServer() {
 			threads = 100
 		}
 
-		// ----- GO'S GOROUTINES FOR ASYNC PROCESSING -----
-		// Start a scan in a goroutine to avoid blocking the HTTP response
+		// Run the scan in background thread
 		go func() {
 			defer func() {
-				// Ensure scanInProgress is set to false when done
+				// Always mark scan as done when finished
 				scanMutex.Lock()
 				scanInProgress = false
 				scanMutex.Unlock()
 			}()
 
-			// Create a cancellable context with timeout
+			// Set timeout to prevent runaway scans
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 
-			// Record start time for duration calculation
+			// Track timing
 			startTime := time.Now()
 
-			// Create scanner with options
+			// Setup the scanner
 			scanner := NewScanner(
 				WithTarget(host),
 				WithPortRange(startPort, endPort),
@@ -486,15 +483,15 @@ func startWebServer() {
 				WithContext(ctx),
 			)
 
-			// Run the scan
+			// Do the scan
 			openPorts, err := scanner.Scan()
 			scanDuration := time.Since(startTime)
 
-			// Prepare results
+			// Collect results
 			portInfos := []PortInfo{}
 
 			if err == nil {
-				// Collect information about each open port
+				// Get details about each open port
 				for _, port := range openPorts {
 					banner, _ := grabBanner(ctx, host, port, time.Duration(timeout)*time.Millisecond)
 					portInfos = append(portInfos, PortInfo{
@@ -505,7 +502,7 @@ func startWebServer() {
 				}
 			}
 
-			// Create a result object
+			// Create result entry
 			result := ScanResult{
 				Host:      host,
 				Ports:     portInfos,
@@ -513,18 +510,18 @@ func startWebServer() {
 				Duration:  scanDuration,
 			}
 
-			// Add to results with write lock for thread safety
+			// Update results list
 			resultsMutex.Lock()
 			scanResults = append([]ScanResult{result}, scanResults...)
 			resultsMutex.Unlock()
 		}()
 
-		// Send a success response
+		// Respond to client
 		w.WriteHeader(http.StatusAccepted)
 		w.Write([]byte("Scan started"))
 	})
 
-	// Handler for checking scan status
+	// Scan status endpoint for AJAX
 	http.HandleFunc("/scan-status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -535,23 +532,23 @@ func startWebServer() {
 		w.Write([]byte(fmt.Sprintf(`{"inProgress": %t}`, status)))
 	})
 
-	// Handler for clearing results
+	// Clear results endpoint
 	http.HandleFunc("/clear", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Clear results with write lock
+		// Wipe all results
 		resultsMutex.Lock()
 		scanResults = []ScanResult{}
 		resultsMutex.Unlock()
 
-		// Redirect back to the main page
+		// Go back to main page
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
-	// Start the HTTP server
+	// Start server
 	fmt.Println("Web server running at http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
