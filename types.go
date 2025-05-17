@@ -5,8 +5,7 @@ import (
 	"time"
 )
 
-// ----- GO'S STRUCT TYPES FOR DATA MODELING -----
-// ScanResult represents the result of a port scan
+// Stores scan results
 type ScanResult struct {
 	Host      string
 	Ports     []PortInfo
@@ -14,21 +13,20 @@ type ScanResult struct {
 	Duration  time.Duration
 }
 
-// PortInfo represents information about an open port
+// Info about an open port
 type PortInfo struct {
 	Port    int
 	Service string
 	Banner  string
 }
 
-// ----- GO'S SYNCHRONIZATION PRIMITIVES -----
-// Global variables for storing scan results with mutex for thread safety
+// Thread-safe global results storage
 var (
 	scanResults  []ScanResult
 	resultsMutex sync.RWMutex
 )
 
-// Port status enumeration using iota (Go's auto-incrementing constant)
+// Possible port states
 type PortStatus int
 
 const (
@@ -38,7 +36,7 @@ const (
 	StatusError
 )
 
-// String method for PortStatus - Go's approach to enums with methods
+// Convert status to string
 func (s PortStatus) String() string {
 	return [...]string{"Open", "Closed", "Filtered", "Error"}[s]
 }
