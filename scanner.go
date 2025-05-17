@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// ----- GO'S ERROR HANDLING WITH CUSTOM ERROR TYPES -----
-// ScanError represents an error that occurred during scanning
+// Custom error type for scan failures
 type ScanError struct {
 	Host    string
 	Port    int
@@ -19,19 +18,18 @@ type ScanError struct {
 	Err     error
 }
 
-// Error method implementation - Go's interface implementation
+// Standard error interface implementation
 func (e *ScanError) Error() string {
 	return fmt.Sprintf("scan error for %s:%d: %s: %v",
 		e.Host, e.Port, e.Message, e.Err)
 }
 
-// Unwrap method for error nesting - Go 1.13+ error wrapping
+// Unwrap for error chain support
 func (e *ScanError) Unwrap() error {
 	return e.Err
 }
 
-// ----- GO'S STRUCT FOR DATA ORGANIZATION -----
-// Scanner handles the port scanning process
+// Main scanner struct
 type Scanner struct {
 	target       string
 	startPort    int
@@ -42,18 +40,17 @@ type Scanner struct {
 	ctx          context.Context
 }
 
-// ----- GO'S FUNCTIONAL OPTIONS PATTERN -----
-// ScannerOption defines a functional option for the Scanner
+// For configuring scanner options
 type ScannerOption func(*Scanner)
 
-// WithTarget sets the target to scan
+// Sets target host
 func WithTarget(target string) ScannerOption {
 	return func(s *Scanner) {
 		s.target = target
 	}
 }
 
-// WithPortRange sets the port range to scan
+// Sets port range to scan
 func WithPortRange(start, end int) ScannerOption {
 	return func(s *Scanner) {
 		s.startPort = start
@@ -61,37 +58,37 @@ func WithPortRange(start, end int) ScannerOption {
 	}
 }
 
-// WithThreads sets the number of concurrent scanning threads
+// Controls parallelism
 func WithThreads(n int) ScannerOption {
 	return func(s *Scanner) {
 		s.threads = n
 	}
 }
 
-// WithTimeout sets the timeout for port connection attempts
+// Connection timeout per port
 func WithTimeout(d time.Duration) ScannerOption {
 	return func(s *Scanner) {
 		s.timeout = d
 	}
 }
 
-// WithProgress enables/disables progress display
+// Toggle progress display
 func WithProgress(show bool) ScannerOption {
 	return func(s *Scanner) {
 		s.showProgress = show
 	}
 }
 
-// WithContext provides a context for cancellation
+// Add cancelation support
 func WithContext(ctx context.Context) ScannerOption {
 	return func(s *Scanner) {
 		s.ctx = ctx
 	}
 }
 
-// NewScanner creates a new scanner with the given options - demonstrates Go's flexibility
+// Creates a new scanner with sensible defaults
 func NewScanner(options ...ScannerOption) *Scanner {
-	// Default values - Go's approach to default parameters
+	// Set defaults
 	s := &Scanner{
 		target:       "localhost",
 		startPort:    1,
@@ -102,7 +99,7 @@ func NewScanner(options ...ScannerOption) *Scanner {
 		ctx:          context.Background(),
 	}
 
-	// Apply all options - Go's functional approach
+	// Apply any provided options
 	for _, option := range options {
 		option(s)
 	}
@@ -110,60 +107,54 @@ func NewScanner(options ...ScannerOption) *Scanner {
 	return s
 }
 
-// ----- GO'S CONCURRENCY MODEL WITH GOROUTINES AND CHANNELS -----
-// Scan starts the scanning process and returns open ports
+// Main scanning function
 func (s *Scanner) Scan() ([]int, error) {
-	// Create buffered channels for work distribution and result collection
-	// Go's approach to concurrent communication
+	// Setup channels for work distribution
 	portCount := s.endPort - s.startPort + 1
-	ports := make(chan int, min(portCount, 1000))   // Buffered channel for work
-	results := make(chan int, min(portCount, 1000)) // Buffered channel for results
-	done := make(chan struct{})                     // Signal channel for completion
+	ports := make(chan int, min(portCount, 1000))   // Work queue
+	results := make(chan int, min(portCount, 1000)) // Results collector
+	done := make(chan struct{})                     // Completion signal
 
-	// Start the progress display if enabled
+	// Handle progress display
 	progressDone := make(chan bool)
 	if s.showProgress {
 		go displayProgress(progressDone, portCount)
 	}
 
-	// ----- GO'S WAITGROUP FOR COORDINATION -----
-	// Use WaitGroup to track worker goroutines
+	// Sync for all worker goroutines
 	var wg sync.WaitGroup
 
-	// Start worker goroutines - Go's lightweight threads
+	// Fire up workers
 	for i := 0; i < s.threads; i++ {
 		wg.Add(1)
-		// Anonymous function with closure - Go idiom for concurrent workers
 		go func() {
-			defer wg.Done() // Ensure WaitGroup is decremented when goroutine exits
+			defer wg.Done()
 
 			for {
-				// ----- GO'S SELECT STATEMENT FOR CHANNEL OPERATIONS -----
-				// Select statement to handle multiple channel operations
 				select {
 				case <-s.ctx.Done():
-					// Context cancelled, exit worker
+					// Bail if canceled
 					return
 				case port, ok := <-ports:
 					if !ok {
-						// Channel closed, exit worker
+						// No more work
 						return
 					}
 
-					// Check if port is open
+					// Try connecting
 					isOpen, err := isPortOpen(s.ctx, s.target, port, s.timeout)
 					if err != nil {
-						// Error checking port - could log here
+						// Skip errors
 						continue
 					}
 
 					if isOpen {
-						// Send open port through results channel
+						// Found an open port
 						select {
 						case results <- port:
-							// Result sent successfully
+							// Sent to results
 						case <-s.ctx.Done():
-							// Context cancelled during send
+							// Canceled during send
 							return
 						}
 					}
@@ -172,29 +163,28 @@ func (s *Scanner) Scan() ([]int, error) {
 		}()
 	}
 
-	// Start a goroutine to close results channel when all workers are done
+	// Clean up when workers finish
 	go func() {
 		wg.Wait()
 		close(results)
 		close(done)
 	}()
 
-	// Start a goroutine to feed ports to workers
+	// Feed ports to workers
 	go func() {
-		defer close(ports) // Ensure ports channel is closed even if context is cancelled
+		defer close(ports)
 
-		// ----- GO'S RANGE LOOP FOR ITERATION -----
 		for port := s.startPort; port <= s.endPort; port++ {
 			select {
 			case <-s.ctx.Done():
 				return
 			case ports <- port:
-				// Port sent for checking
+				// Sent for checking
 			}
 		}
 	}()
 
-	// Collect results using channel range - idiomatic Go
+	// Collect and process results
 	openPorts := []int{}
 	for port := range results {
 		openPorts = append(openPorts, port)
@@ -207,15 +197,15 @@ func (s *Scanner) Scan() ([]int, error) {
 		}
 	}
 
-	// Wait for all scanning to complete
+	// Wait till everything's done
 	<-done
 
-	// Stop the progress display
+	// Stop progress display
 	if s.showProgress {
 		progressDone <- true
 	}
 
-	// Check if the scan was cancelled
+	// Handle cancellation
 	select {
 	case <-s.ctx.Done():
 		return openPorts, fmt.Errorf("scan cancelled: %w", s.ctx.Err())
@@ -224,39 +214,38 @@ func (s *Scanner) Scan() ([]int, error) {
 	}
 }
 
-// ----- GO'S MULTIPLE RETURN VALUES AND ERROR HANDLING -----
-// isPortOpen checks if a port is open with context cancellation support
+// Check if a single port is open
 func isPortOpen(ctx context.Context, host string, port int, timeout time.Duration) (bool, error) {
-	// Create a custom dialer with timeout
+	// Setup dialer with timeout
 	var d net.Dialer
 	d.Timeout = timeout
 
-	// Use DialContext to respect cancellation - Go's context pattern
+	// Try to connect
 	address := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := d.DialContext(ctx, "tcp", address)
 
 	if err != nil {
-		// Check for specific network errors - Go's type assertion
+		// Handle different error types
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			return false, nil // Not considered an error, just closed/filtered
+			return false, nil // Just closed/filtered
 		}
 
-		// Check if context was cancelled
+		// Check for cancellation
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return false, err
 		}
 
-		return false, nil // Other errors treated as closed port
+		return false, nil // Other errors = closed port
 	}
 
-	// Use defer for cleanup - Go's resource management
+	// Clean up connection
 	defer conn.Close()
 	return true, nil
 }
 
-// isHostAlive checks if a host is reachable
+// Quick host availability check
 func isHostAlive(ctx context.Context, host string, timeout time.Duration) bool {
-	// Try connecting to common ports
+	// Check common ports
 	for _, port := range []int{80, 443, 22, 3389} {
 		isOpen, _ := isPortOpen(ctx, host, port, timeout)
 		if isOpen {
@@ -267,7 +256,7 @@ func isHostAlive(ctx context.Context, host string, timeout time.Duration) bool {
 	return false
 }
 
-// min returns the smaller of two integers - utility function
+// Simple helper function
 func min(a, b int) int {
 	if a < b {
 		return a
