@@ -8,31 +8,27 @@ import (
 	"time"
 )
 
-// ----- GO'S CSV ENCODING/DECODING -----
-// saveToCSV saves scan results to a CSV file
+// Exports scan results to CSV file
 func saveToCSV(filename string, results map[string][]int) error {
-	// Create the file
+	// Create output file
 	file, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("error creating CSV file: %w", err)
 	}
-	// ----- GO'S DEFER FOR CLEANUP -----
 	defer file.Close()
 
-	// Create CSV writer
+	// Setup CSV writer
 	writer := csv.NewWriter(file)
-	// Ensure all data is written before function returns
 	defer writer.Flush()
 
-	// Write header
+	// Add header row
 	header := []string{"Host", "Port", "Service", "Timestamp"}
 	err = writer.Write(header)
 	if err != nil {
 		return fmt.Errorf("error writing CSV header: %w", err)
 	}
 
-	// ----- GO'S RANGE LOOP FOR MAPS -----
-	// Write data rows - iterate through hosts and ports
+	// Write each host/port combination
 	timestamp := time.Now().Format(time.RFC3339)
 	for host, ports := range results {
 		for _, port := range ports {
@@ -53,9 +49,8 @@ func saveToCSV(filename string, results map[string][]int) error {
 	return nil
 }
 
-// formatDuration formats a duration as a human-readable string
+// Formats time duration to be human-readable
 func formatDuration(d time.Duration) string {
-	// ----- GO'S TIME PACKAGE -----
 	// Round to seconds for display
 	d = d.Round(time.Second)
 
@@ -76,14 +71,14 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-// formatResultSummary creates a summary string of scan results
+// Creates a one-line summary of scan results
 func formatResultSummary(host string, openPorts []int) string {
-	// When no ports are open
+	// No open ports case
 	if len(openPorts) == 0 {
 		return fmt.Sprintf("No open ports found on %s", host)
 	}
 
-	// Create a summary for a few ports
+	// Show all ports if 10 or fewer
 	if len(openPorts) <= 10 {
 		summary := fmt.Sprintf("%d open ports on %s: ", len(openPorts), host)
 		for i, port := range openPorts {
@@ -96,7 +91,7 @@ func formatResultSummary(host string, openPorts []int) string {
 		return summary
 	}
 
-	// For many ports, just show the count and first few
+	// Truncate if too many ports
 	summary := fmt.Sprintf("%d open ports on %s including: ", len(openPorts), host)
 	for i := 0; i < 5; i++ {
 		service := getServiceName(openPorts[i])
@@ -109,19 +104,18 @@ func formatResultSummary(host string, openPorts []int) string {
 	return summary
 }
 
-// generateScanReport creates a detailed report of scan results
+// Builds a complete text report of scan findings
 func generateScanReport(results map[string][]int, startTime time.Time) string {
 	duration := time.Since(startTime)
 
-	// Count total hosts and ports
+	// Get stats
 	hostCount := len(results)
 	portCount := 0
 	for _, ports := range results {
 		portCount += len(ports)
 	}
 
-	// ----- GO'S STRING FORMATTING -----
-	// Generate the report using Go's string formatting
+	// Header section
 	report := fmt.Sprintf("PORT SCANNER REPORT\n")
 	report += fmt.Sprintf("=================\n\n")
 	report += fmt.Sprintf("Scan completed at: %s\n", time.Now().Format(time.RFC1123))
@@ -129,7 +123,7 @@ func generateScanReport(results map[string][]int, startTime time.Time) string {
 	report += fmt.Sprintf("Hosts scanned: %d\n", hostCount)
 	report += fmt.Sprintf("Open ports found: %d\n\n", portCount)
 
-	// Include details for each host
+	// Results section
 	report += fmt.Sprintf("DETAILED RESULTS\n")
 	report += fmt.Sprintf("----------------\n\n")
 
@@ -137,12 +131,12 @@ func generateScanReport(results map[string][]int, startTime time.Time) string {
 		report += fmt.Sprintf("Host: %s\n", host)
 		report += fmt.Sprintf("Open ports: %d\n", len(ports))
 
-		// Guess OS based on open ports
+		// Try to identify OS
 		if len(ports) > 0 {
 			report += fmt.Sprintf("OS Detection: %s\n", guessOS(ports))
 		}
 
-		// List open ports and services
+		// List ports and services
 		if len(ports) > 0 {
 			report += "PORT\tSERVICE\n"
 			report += "----\t-------\n"
@@ -157,21 +151,21 @@ func generateScanReport(results map[string][]int, startTime time.Time) string {
 		report += "\n"
 	}
 
-	// Add footer
+	// Footer
 	report += "Scan completed successfully\n"
 	return report
 }
 
-// saveReportToFile saves a scan report to a text file
+// Writes report to text file
 func saveReportToFile(filename string, report string) error {
-	// Create the file
+	// Create file
 	file, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("error creating report file: %w", err)
 	}
 	defer file.Close()
 
-	// Write the report
+	// Save report content
 	_, err = file.WriteString(report)
 	if err != nil {
 		return fmt.Errorf("error writing report: %w", err)
