@@ -9,8 +9,7 @@ import (
 	"time"
 )
 
-// ----- GO'S MAP FOR DATA LOOKUPS -----
-// Map of common port numbers to service names - Go's built-in hash table
+// Map of common ports to their services
 var commonPorts = map[int]string{
 	20:    "FTP Data",
 	21:    "FTP Control",
@@ -34,18 +33,17 @@ var commonPorts = map[int]string{
 	27017: "MongoDB",
 }
 
-// ----- GO'S INTERFACE-BASED DESIGN -----
-// ServiceDetector interface for extensible service detection
+// Interface for pluggable service detection
 type ServiceDetector interface {
 	Detect(host string, port int) (string, bool)
 	Name() string
 }
 
-// HTTPDetector implements service detection for HTTP/HTTPS
+// HTTP service detector implementation
 type HTTPDetector struct{}
 
 func (d HTTPDetector) Detect(host string, port int) (string, bool) {
-	// Simple detection based on port number
+	// Quick check for standard ports
 	if port == 80 {
 		return "HTTP", true
 	}
@@ -53,7 +51,7 @@ func (d HTTPDetector) Detect(host string, port int) (string, bool) {
 		return "HTTPS", true
 	}
 
-	// Try to detect HTTP on non-standard ports by banner
+	// Try non-standard ports by banner grab
 	banner, err := grabBanner(context.Background(), host, port, 2*time.Second)
 	if err != nil {
 		return "", false
@@ -70,7 +68,7 @@ func (d HTTPDetector) Name() string {
 	return "HTTP Detector"
 }
 
-// SSHDetector implements detection for SSH
+// SSH service detector
 type SSHDetector struct{}
 
 func (d SSHDetector) Detect(host string, port int) (string, bool) {
@@ -94,63 +92,61 @@ func (d SSHDetector) Name() string {
 	return "SSH Detector"
 }
 
-// ----- GO'S SLICE FOR COLLECTIONS -----
-// detectors is a slice of ServiceDetector implementations
+// List of available detectors
 var detectors = []ServiceDetector{
 	HTTPDetector{},
 	SSHDetector{},
-	// Additional detectors can be added here
+	// Can add more detectors here later
 }
 
-// getServiceName returns the service name for a given port
+// Lookup service name by port number
 func getServiceName(port int) string {
-	// First check for common ports in our map
+	// Check our known ports first
 	if service, exists := commonPorts[port]; exists {
 		return service
 	}
 
-	// For unknown ports, return "Unknown"
+	// Fall back to generic label
 	return "Unknown"
 }
 
-// grabBanner attempts to retrieve the service banner from a port
+// Try to grab service banner from the port
 func grabBanner(ctx context.Context, host string, port int, timeout time.Duration) (string, error) {
-	// Create a dialer with timeout
+	// Setup connection with timeout
 	var d net.Dialer
 	d.Timeout = timeout
 
-	// Connect to the port
+	// Connect to target
 	address := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := d.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return "", err
 	}
 
-	// ----- GO'S DEFER FOR RESOURCE CLEANUP -----
-	// Ensure connection is closed when function returns
+	// Make sure we close the connection
 	defer conn.Close()
 
-	// Set deadlines for read/write operations
+	// Set timeout for I/O
 	deadline := time.Now().Add(timeout)
 	err = conn.SetDeadline(deadline)
 	if err != nil {
 		return "", err
 	}
 
-	// For certain common ports, send appropriate requests
+	// Send appropriate probe for common protocols
 	switch port {
 	case 80, 8080:
-		// For HTTP, send a simple request
+		// Simple HTTP request
 		_, err = fmt.Fprintf(conn, "GET / HTTP/1.0\r\nHost: %s\r\n\r\n", host)
 		if err != nil {
 			return "", err
 		}
 	case 21:
-		// FTP usually sends a banner automatically, no need to send anything
+		// FTP banner comes automatically
 	case 22:
-		// SSH usually sends a banner automatically, no need to send anything
+		// SSH banner comes automatically
 	case 25, 587:
-		// SMTP usually sends a banner automatically, no need to send anything
+		// SMTP banner comes automatically
 	}
 
 	// Read the response
@@ -160,13 +156,13 @@ func grabBanner(ctx context.Context, host string, port int, timeout time.Duratio
 		return "", err
 	}
 
-	// Clean up the banner
+	// Format the banner nicely
 	banner := string(buffer[:n])
-	// Replace newlines with spaces for display
+	// Clean up newlines
 	banner = strings.ReplaceAll(banner, "\r\n", " ")
 	banner = strings.ReplaceAll(banner, "\n", " ")
 
-	// Truncate if too long
+	// Truncate long responses
 	if len(banner) > 100 {
 		banner = banner[:100] + "..."
 	}
@@ -174,10 +170,9 @@ func grabBanner(ctx context.Context, host string, port int, timeout time.Duratio
 	return banner, nil
 }
 
-// ----- GO'S STRING HANDLING -----
-// expandIPRange expands an IP range string into individual IP addresses
+// Convert IP range (192.168.1.1-192.168.1.10) to list of IPs
 func expandIPRange(ipRange string) ([]string, error) {
-	// Split on the hyphen to get start and end IPs
+	// Parse the range format
 	parts := strings.Split(ipRange, "-")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid IP range format (use: 192.168.1.1-192.168.1.10)")
@@ -186,19 +181,19 @@ func expandIPRange(ipRange string) ([]string, error) {
 	startIP := strings.TrimSpace(parts[0])
 	endIP := strings.TrimSpace(parts[1])
 
-	// Parse the start IP
+	// Check start IP format
 	startIPParts := strings.Split(startIP, ".")
 	if len(startIPParts) != 4 {
 		return nil, fmt.Errorf("invalid start IP address")
 	}
 
-	// Parse the end IP
+	// Check end IP format
 	endIPParts := strings.Split(endIP, ".")
 	if len(endIPParts) != 4 {
 		return nil, fmt.Errorf("invalid end IP address")
 	}
 
-	// Convert the last octet to integers
+	// Get the last octet numbers
 	startOctet, err := strconv.Atoi(startIPParts[3])
 	if err != nil {
 		return nil, fmt.Errorf("invalid start IP address")
@@ -209,17 +204,17 @@ func expandIPRange(ipRange string) ([]string, error) {
 		return nil, fmt.Errorf("invalid end IP address")
 	}
 
-	// Check if the first three octets match
+	// Check subnet match
 	if startIPParts[0] != endIPParts[0] || startIPParts[1] != endIPParts[1] || startIPParts[2] != endIPParts[2] {
 		return nil, fmt.Errorf("IP range must be in the same /24 subnet")
 	}
 
-	// Check if the range is valid
+	// Make sure range is valid
 	if startOctet > endOctet {
 		return nil, fmt.Errorf("start IP must be less than or equal to end IP")
 	}
 
-	// Generate the IP addresses
+	// Generate all IPs in range
 	baseIP := fmt.Sprintf("%s.%s.%s.", startIPParts[0], startIPParts[1], startIPParts[2])
 	var ips []string
 
@@ -230,10 +225,9 @@ func expandIPRange(ipRange string) ([]string, error) {
 	return ips, nil
 }
 
-// guessOS attempts to determine the operating system based on open ports
+// Try to identify OS based on open port patterns
 func guessOS(openPorts []int) string {
-	// ----- GO'S CLOSURE FOR HELPER FUNCTIONS -----
-	// Helper function to check if a slice contains a value
+	// Helper to check if port exists in list
 	contains := func(ports []int, port int) bool {
 		for _, p := range ports {
 			if p == port {
@@ -243,20 +237,20 @@ func guessOS(openPorts []int) string {
 		return false
 	}
 
-	// Check for common Windows ports
+	// Windows signature ports
 	hasPort445 := contains(openPorts, 445)
 	hasPort3389 := contains(openPorts, 3389)
 	hasPort135 := contains(openPorts, 135)
 
-	// Check for common Linux/Unix ports
+	// Linux/Unix signature ports
 	hasPort22 := contains(openPorts, 22)
 	hasPort111 := contains(openPorts, 111)
 
-	// Check for web server ports
+	// Web server ports
 	hasPort80 := contains(openPorts, 80)
 	hasPort443 := contains(openPorts, 443)
 
-	// Make a determination
+	// Fingerprint analysis
 	if hasPort445 || hasPort3389 || hasPort135 {
 		return "Likely Windows"
 	}
